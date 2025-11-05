@@ -1,0 +1,87 @@
+function [sys, x0, str, ts] = robolink_sfunc(t, x, u, flag)
+% RoboDK S-Function: Transmite datos de Simulink a RoboDK en tiempo real.
+% La conexión (RDK) y el robot (ROBOT) deben ser definidos como
+% variables globales en la función InitFcn del modelo de Simulink.
+
+switch flag
+
+  %%%%%%%%%%%%%%%%%%
+  % Inicialización %
+  %%%%%%%%%%%%%%%%%%
+  case 0
+    [sys, x0, str, ts] = mdlInitializeSizes;
+
+  %%%%%%%%%%
+  % Update %
+  %%%%%%%%%%
+  case 3
+    sys = mdlUpdate(t, x, u);
+
+  %%%%%%%%%%%%%%%%%%%%
+  % Banderas sin uso %
+  %%%%%%%%%%%%%%%%%%%%
+  case { 1, 2, 4, 9 }
+    sys = []; % No hacemos nada en estos casos
+
+  %%%%%%%%%%%%%%%%
+  % Error        %
+  %%%%%%%%%%%%%%%%
+  otherwise
+    error(['Bandera desconocida (flag): ', num2str(flag)]);
+end
+end
+
+
+%=======================================================================
+% Función de Inicialización (se ejecuta una vez al inicio)
+%=======================================================================
+function [sys, x0, str, ts] = mdlInitializeSizes()
+
+% Define las propiedades del bloque en Simulink
+sizes = simsizes;
+sizes.NumContStates  = 0;
+sizes.NumDiscStates  = 0;
+sizes.NumOutputs     = 0;  % Este bloque NO tiene salidas
+sizes.NumInputs      = -1; % -1 = tamaño dinámico
+sizes.DirFeedthrough = 1;  % Entrada afecta salida
+sizes.NumSampleTimes = 1;  % Un solo tiempo de muestreo
+
+sys = simsizes(sizes);
+x0  = []; 
+str = []; 
+ts  = [-1, 0]; % Hereda el tiempo de muestreo del modelo
+end
+
+
+%=======================================================================
+% Función de Actualización (se ejecuta en CADA paso de simulación)
+%=======================================================================
+function sys = mdlUpdate(t, x, u)
+persistent step_counter
+
+if isempty(step_counter)
+    step_counter = 0;
+end
+step_counter = step_counter + 1;
+
+% ==============================
+% 🔧 Ajuste de frecuencia de envío
+% ==============================
+send_every = 3; % Envía cada 3 pasos (ajústalo a 2, 5 o 10 según tu velocidad)
+% ==============================
+
+global ROBOT;
+
+% Enviar solo si el robot está disponible y válido
+if ~isempty(ROBOT) && ROBOT.Valid()
+    if mod(step_counter, send_every) == 0
+        try
+            ROBOT.setJoints(u); % Envía posición articular al robot
+        catch ME
+            disp(['[robolink_sfunc] Error: ' ME.message]);
+        end
+    end
+end
+
+sys = [];
+end
